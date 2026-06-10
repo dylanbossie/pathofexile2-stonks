@@ -1,0 +1,155 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #16120e;
+  color: #e8ddc8;
+}
+
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+h1 {
+  color: #d4af37;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+select,
+input {
+  padding: 0.5rem;
+  background: #241e16;
+  color: inherit;
+  border: 1px solid #4a3f2e;
+  border-radius: 6px;
+  font-size: 1rem;
+  min-width: 10rem;
+}
+
+.search {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  width: max(100%, 18rem);
+  max-height: 20rem;
+  overflow-y: auto;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: #241e16;
+  border: 1px solid #4a3f2e;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.suggestions li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.suggestions li.highlighted {
+  background: #3a3022;
+}
+
+.calculate {
+  align-self: flex-end;
+  padding: 0.5rem 1.25rem;
+  background: #d4af37;
+  color: #16120e;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calculate:hover:not(:disabled) {
+  background: #e8c555;
+}
+
+.calculate:disabled {
+  background: #4a3f2e;
+  color: #8a7f6a;
+  cursor: not-allowed;
+}
+
+.ratio {
+  font-size: 1.1rem;
+}
+
+.results {
+  background: #1f1a13;
+  border: 1px solid #4a3f2e;
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.results h2 {
+  margin-top: 0;
+  color: #d4af37;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+td {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #332b1f;
+}
+
+td:last-child {
+  text-align: right;
+}
+
+.best td {
+  color: #7fd47f;
+  font-weight: 600;
+}
+
+.sell {
+  font-size: 1.25rem;
+  margin-bottom: 0;
+}
+
+.sell strong {
+  color: #7fd47f;
+}
+
+.error {
+  color: #e06c5f;
+}
+
+.muted {
+  color: #8a7f6a;
+  font-size: 0.85rem;
+}
