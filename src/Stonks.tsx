@@ -15,7 +15,7 @@ import {
 } from "./invest";
 import Sparkline from "./Sparkline";
 import Portfolio from "./Portfolio";
-import { usePortfolio } from "./portfolio";
+import { usePortfolio } from "./portfolioStore";
 import PriorDetail from "./PriorDetail";
 import {
   leagueStartMs,

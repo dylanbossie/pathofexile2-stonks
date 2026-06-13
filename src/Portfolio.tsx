@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import type { MergedEconomy, PricedItem } from "./api";
 import { formatNumber } from "./format";
 import ItemSearch from "./ItemSearch";
-import { valuePortfolio, type Portfolio as PortfolioApi } from "./portfolio";
+import {
+  valuePortfolio,
+  type Portfolio as PortfolioApi,
+} from "./portfolioStore";
 
 /** Parse a user-typed number, returning `fallback` for blank/invalid input. */
 function parseNum(value: string, fallback: number): number {
