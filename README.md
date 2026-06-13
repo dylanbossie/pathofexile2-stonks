@@ -54,6 +54,8 @@ predict patch/meta shifts, which aren't in the data.
 
 ## Caching
 
-Every poe.ninja response is cached in `localStorage` for 15 minutes, so
-the API is queried at most once per league/category per 15-minute window,
-even across page reloads. The header shows how old the prices are.
+Every poe.ninja response is cached in `localStorage`, so the API is
+queried at most once per URL per cache window, even across page reloads.
+The overview/price calls use a 15-minute window (the header shows how old
+the prices are); the bulky, slow-moving per-item history calls behind the
+Stonks tab use a 1-hour window to stay polite to the API.

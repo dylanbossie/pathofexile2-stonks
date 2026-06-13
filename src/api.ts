@@ -90,7 +90,10 @@ export interface MergedEconomy {
   fetchedAt: number;
 }
 
+/** Default cache lifetime; tunes price freshness vs. API politeness. */
 const CACHE_TTL_MS = 15 * 60 * 1000;
+/** Per-item history is bulky (many requests) and slow-moving, so cache longer. */
+const HISTORY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_PREFIX = "ninja-cache:";
 
 interface CacheEntry {
@@ -99,18 +102,19 @@ interface CacheEntry {
 }
 
 /**
- * Fetch with a 15-minute localStorage cache so poe.ninja is queried at
- * most once per TTL per URL, surviving page reloads.
+ * Fetch with a localStorage cache so poe.ninja is queried at most once per
+ * `ttlMs` per URL, surviving page reloads.
  */
 async function cachedFetchJson(
   url: string,
+  ttlMs: number = CACHE_TTL_MS,
 ): Promise<{ data: unknown; fetchedAt: number }> {
   const key = CACHE_PREFIX + url;
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
       const entry = JSON.parse(raw) as CacheEntry;
-      if (Date.now() - entry.fetchedAt < CACHE_TTL_MS) {
+      if (Date.now() - entry.fetchedAt < ttlMs) {
         return { data: entry.data, fetchedAt: entry.fetchedAt };
       }
     }
@@ -207,6 +211,7 @@ export async function fetchItemHistory(
   const params = new URLSearchParams({ league, type, id: detailsId });
   const { data } = await cachedFetchJson(
     `/ninja/poe2/api/economy/exchange/current/details?${params}`,
+    HISTORY_CACHE_TTL_MS,
   );
   const d = data as DetailsResponse;
   // The pair against the primary currency (divine) is the divine price.

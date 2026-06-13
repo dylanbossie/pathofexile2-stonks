@@ -88,7 +88,7 @@ export default function Stonks({
   return (
     <>
       <div className="controls">
-        <label>
+        <label title="Only consider items trading at least this much volume (in Divines). Higher = only deep, liquid markets you can actually buy and sell in.">
           Min volume (div)
           <input
             type="number"
@@ -101,7 +101,7 @@ export default function Stonks({
           />
         </label>
 
-        <label>
+        <label title="Hide items whose price doesn't reliably track the economy. Higher = stricter, fewer but more dependable results.">
           Min R² ({formatNumber(minRSquared, 2)})
           <input
             type="range"
@@ -131,6 +131,52 @@ export default function Stonks({
         track the market.
       </p>
 
+      <details className="legend">
+        <summary>How to read these results</summary>
+        <dl>
+          <dt>Market drift</dt>
+          <dd>
+            The economy's overall inflation for the period — the average price
+            change across all traded items. Positive means things are getting
+            more expensive in Divines.
+          </dd>
+          <dt>β (beta)</dt>
+          <dd>
+            How hard an item moves when the whole economy moves 1%. β&nbsp;2
+            swings twice as hard as average. Higher β = bigger expected gains
+            while inflation continues (and bigger drops if it reverses). The
+            list is sorted by this.
+          </dd>
+          <dt>R²</dt>
+          <dd>
+            How dependable that β is, from 0 to 1. Near 1 = the item reliably
+            tracks the economy. Near 0 = its price is noisy and the β is
+            basically luck. The slider hides items below your chosen R².
+          </dd>
+          <dt>Sparkline</dt>
+          <dd>
+            The item's actual Divine price over time. Green ended higher than
+            it started, red lower. A smooth climb is more trustworthy than a
+            jagged spike.
+          </dd>
+          <dt>Realized %</dt>
+          <dd>
+            The price change that already happened over the window
+            (backward-looking), so you can sanity-check the forward-looking β.
+          </dd>
+          <dt>div · vol</dt>
+          <dd>
+            Current price of one unit in Divines, and how much is being traded
+            (in Divines). High volume = an active market you can actually buy
+            and sell in.
+          </dd>
+        </dl>
+        <p className="muted">
+          All of this is built from past prices — it finds historically
+          inflation-sensitive items, but can't predict patches or meta shifts.
+        </p>
+      </details>
+
       {running && progress.total > 0 && (
         <p className="muted">
           Fetching price history… {progress.done}/{progress.total}
@@ -148,7 +194,10 @@ export default function Stonks({
 
       {report && (
         <section className="results">
-          <p className="ratio">
+          <p
+            className="ratio"
+            title="The economy's overall inflation over this window — the volume-weighted average price change across all traded items."
+          >
             Market drifted{" "}
             <strong
               className={
@@ -185,15 +234,29 @@ export default function Stonks({
                     data={opp.history.map((h) => h.rate)}
                     positive={opp.realizedChange >= 0}
                   />
-                  <span className="opp-change up">
+                  <span
+                    className="opp-change up"
+                    title="Beta: how hard this item moves when the economy moves 1%. Higher = bigger expected gains while inflation continues."
+                  >
                     β {formatNumber(opp.beta, 1)}
                   </span>
                   <span className="opp-meta muted">
-                    R² {formatNumber(opp.rSquared, 2)} ·{" "}
-                    {opp.realizedChange >= 0 ? "+" : ""}
-                    {formatNumber(opp.realizedChange * 100, 0)}% realized ·{" "}
-                    {formatNumber(opp.item.unitDivines, 3)} div · vol{" "}
-                    {formatNumber(opp.item.volumeDivines, 0)}
+                    <span title="How dependable the beta is (0–1); higher = more reliable.">
+                      R² {formatNumber(opp.rSquared, 2)}
+                    </span>{" "}
+                    ·{" "}
+                    <span title="Price change that already happened over the window.">
+                      {opp.realizedChange >= 0 ? "+" : ""}
+                      {formatNumber(opp.realizedChange * 100, 0)}% realized
+                    </span>{" "}
+                    ·{" "}
+                    <span title="Current price of one unit, in Divines.">
+                      {formatNumber(opp.item.unitDivines, 3)} div
+                    </span>{" "}
+                    ·{" "}
+                    <span title="Trade volume in Divines; higher = a more liquid market.">
+                      vol {formatNumber(opp.item.volumeDivines, 0)}
+                    </span>
                   </span>
                 </li>
               ))}

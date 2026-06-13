@@ -63,6 +63,42 @@ h1 {
   flex: 1 1 14rem;
 }
 
+.legend {
+  margin: 0 0 1.25rem;
+  padding: 0.5rem 0.85rem;
+  background: #1f1a13;
+  border: 1px solid #4a3f2e;
+  border-radius: 6px;
+}
+
+.legend summary {
+  cursor: pointer;
+  color: #d4af37;
+  font-weight: 600;
+}
+
+.legend dl {
+  margin: 0.75rem 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 0.85rem;
+}
+
+.legend dt {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.legend dd {
+  margin: 0;
+  color: #c9bda3;
+  font-size: 0.9rem;
+}
+
+.legend > p {
+  margin: 0.75rem 0 0;
+}
+
 .opportunities {
   margin: 0;
   padding-left: 1.5rem;
