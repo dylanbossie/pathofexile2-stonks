@@ -30,8 +30,8 @@ export interface InvestmentReport {
 const MIN_POINTS = 6;
 /** Minimum overlap with the market index needed for a stable regression. */
 const MIN_RETURN_PAIRS = 5;
-/** Require genuine market tracking, not noise, before ranking on beta. */
-const MIN_R_SQUARED = 0.25;
+/** Default R²: require genuine market tracking, not noise, before ranking. */
+export const DEFAULT_MIN_R_SQUARED = 0.25;
 
 /** Daily simple returns keyed by the later date of each pair. */
 function dailyReturns(history: HistoryPoint[]): Map<string, number> {
@@ -117,6 +117,7 @@ function regress(
 export function rankOpportunities(
   series: ItemSeries[],
   topN: number,
+  minRSquared: number = DEFAULT_MIN_R_SQUARED,
 ): InvestmentReport {
   const usable = series.filter((s) => s.history.length >= MIN_POINTS);
   const market = buildMarketIndex(usable);
@@ -124,7 +125,7 @@ export function rankOpportunities(
   const opportunities: Opportunity[] = [];
   for (const s of usable) {
     const reg = regress(dailyReturns(s.history), market);
-    if (!reg || reg.rSquared < MIN_R_SQUARED) continue;
+    if (!reg || reg.rSquared < minRSquared) continue;
     const h = s.history;
     const realizedChange =
       h[0].rate > 0 ? h[h.length - 1].rate / h[0].rate - 1 : 0;

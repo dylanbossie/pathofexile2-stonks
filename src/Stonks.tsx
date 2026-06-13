@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
-import {
-  fetchItemHistory,
-  mapLimit,
-  type MergedEconomy,
-} from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { fetchItemHistory, mapLimit, type MergedEconomy } from "./api";
 import { formatNumber } from "./format";
-import { rankOpportunities, type InvestmentReport, type ItemSeries } from "./invest";
+import {
+  DEFAULT_MIN_R_SQUARED,
+  rankOpportunities,
+  type ItemSeries,
+} from "./invest";
 import Sparkline from "./Sparkline";
 
-/** Minimum trade volume (in divines) for an item to count as liquid. */
-const VOLUME_FLOOR_DIVINES = 500;
+const DEFAULT_VOLUME_FLOOR = 500;
 const TOP_N = 10;
 /** Concurrent detail requests; poe.ninja tolerates this comfortably. */
 const FETCH_CONCURRENCY = 8;
@@ -23,30 +22,42 @@ export default function Stonks({
   league: string;
   loading: boolean;
 }) {
-  const [report, setReport] = useState<InvestmentReport | null>(null);
+  const [volumeFloor, setVolumeFloor] = useState(DEFAULT_VOLUME_FLOOR);
+  const [minRSquared, setMinRSquared] = useState(DEFAULT_MIN_R_SQUARED);
+  // The fetched histories from the last run, plus the volume floor they
+  // were fetched with (so we can tell the user when it's gone stale).
+  const [series, setSeries] = useState<ItemSeries[] | null>(null);
+  const [ranWithFloor, setRanWithFloor] = useState(volumeFloor);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
 
   // Stale results shouldn't survive a league/data change.
   useEffect(() => {
-    setReport(null);
+    setSeries(null);
     setError(null);
   }, [economy]);
+
+  // R² only filters the final ranking, so re-rank instantly with no refetch.
+  // (Volume floor changes the fetched set, so it requires re-running.)
+  const report = useMemo(
+    () => (series ? rankOpportunities(series, TOP_N, minRSquared) : null),
+    [series, minRSquared],
+  );
 
   async function generate() {
     if (!economy || running) return;
     setRunning(true);
     setError(null);
-    setReport(null);
+    setSeries(null);
 
     const liquid = economy.items.filter(
-      (item) => item.volumeDivines >= VOLUME_FLOOR_DIVINES && item.detailsId,
+      (item) => item.volumeDivines >= volumeFloor && item.detailsId,
     );
     setProgress({ done: 0, total: liquid.length });
 
     try {
-      const series = await mapLimit<typeof liquid[number], ItemSeries>(
+      const fetched = await mapLimit<(typeof liquid)[number], ItemSeries>(
         liquid,
         FETCH_CONCURRENCY,
         async (item) => {
@@ -63,7 +74,8 @@ export default function Stonks({
         },
         (done, total) => setProgress({ done, total }),
       );
-      setReport(rankOpportunities(series, TOP_N));
+      setSeries(fetched);
+      setRanWithFloor(volumeFloor);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -71,9 +83,36 @@ export default function Stonks({
     }
   }
 
+  const floorStale = series !== null && ranWithFloor !== volumeFloor;
+
   return (
     <>
       <div className="controls">
+        <label>
+          Min volume (div)
+          <input
+            type="number"
+            min={0}
+            step={50}
+            value={volumeFloor}
+            onChange={(e) =>
+              setVolumeFloor(Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+          />
+        </label>
+
+        <label>
+          Min R² ({formatNumber(minRSquared, 2)})
+          <input
+            type="range"
+            min={0}
+            max={0.9}
+            step={0.05}
+            value={minRSquared}
+            onChange={(e) => setMinRSquared(Number(e.target.value))}
+          />
+        </label>
+
         <button
           type="button"
           className="calculate"
@@ -82,17 +121,26 @@ export default function Stonks({
         >
           {running ? "Analyzing…" : "Find investment opportunities"}
         </button>
-        <p className="muted stonks-criteria">
-          Ranks the top {TOP_N} items by <strong>inflation beta</strong> —
-          how hard each amplifies the market-wide price trend — among items
-          trading at ≥ {formatNumber(VOLUME_FLOOR_DIVINES, 0)} divines volume,
-          using full daily price history in divines.
-        </p>
       </div>
+
+      <p className="muted stonks-criteria">
+        Ranks the top {TOP_N} items by <strong>inflation beta</strong> — how
+        hard each amplifies the market-wide price trend — among items trading
+        at ≥ {formatNumber(volumeFloor, 0)} divines volume, using full daily
+        price history in divines. R² filters out items that don't reliably
+        track the market.
+      </p>
 
       {running && progress.total > 0 && (
         <p className="muted">
           Fetching price history… {progress.done}/{progress.total}
+        </p>
+      )}
+
+      {floorStale && (
+        <p className="muted">
+          Volume floor changed to {formatNumber(volumeFloor, 0)} — re-run to
+          apply (showing results for ≥ {formatNumber(ranWithFloor, 0)}).
         </p>
       )}
 
@@ -103,7 +151,9 @@ export default function Stonks({
           <p className="ratio">
             Market drifted{" "}
             <strong
-              className={report.marketDrift >= 0 ? "opp-change up" : "opp-change down"}
+              className={
+                report.marketDrift >= 0 ? "opp-change up" : "opp-change down"
+              }
             >
               {report.marketDrift >= 0 ? "+" : ""}
               {formatNumber(report.marketDrift * 100, 0)}%
@@ -119,8 +169,9 @@ export default function Stonks({
 
           {report.opportunities.length === 0 ? (
             <p className="muted">
-              No items cleared the liquidity, history, and market-tracking
-              filters in this league.
+              No items cleared the volume, history, and R² ≥{" "}
+              {formatNumber(minRSquared, 2)} filters. Try lowering the
+              thresholds.
             </p>
           ) : (
             <ol className="opportunities">
@@ -134,9 +185,12 @@ export default function Stonks({
                     data={opp.history.map((h) => h.rate)}
                     positive={opp.realizedChange >= 0}
                   />
-                  <span className="opp-change up">β {formatNumber(opp.beta, 1)}</span>
+                  <span className="opp-change up">
+                    β {formatNumber(opp.beta, 1)}
+                  </span>
                   <span className="opp-meta muted">
-                    R² {formatNumber(opp.rSquared, 2)} · {opp.realizedChange >= 0 ? "+" : ""}
+                    R² {formatNumber(opp.rSquared, 2)} ·{" "}
+                    {opp.realizedChange >= 0 ? "+" : ""}
                     {formatNumber(opp.realizedChange * 100, 0)}% realized ·{" "}
                     {formatNumber(opp.item.unitDivines, 3)} div · vol{" "}
                     {formatNumber(opp.item.volumeDivines, 0)}
