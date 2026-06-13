@@ -96,7 +96,7 @@ export default function App() {
       {tab === "calculator" ? (
         <Calculator economy={economy} loading={loading} />
       ) : (
-        <Stonks economy={economy} loading={loading} />
+        <Stonks economy={economy} league={league} loading={loading} />
       )}
     </main>
   );

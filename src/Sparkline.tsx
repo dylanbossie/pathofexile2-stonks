@@ -25,8 +25,8 @@ export default function Sparkline({
   const pad = 3;
   const w = width - pad * 2;
   const h = height - pad * 2;
-  const min = Math.min(...data, 0);
-  const max = Math.max(...data, 0);
+  const min = Math.min(...data);
+  const max = Math.max(...data);
   const range = max - min || 1;
 
   const y = (v: number) => pad + h - ((v - min) / range) * h;
@@ -39,6 +39,8 @@ export default function Sparkline({
 
   const up = positive ?? data[data.length - 1] >= data[0];
   const stroke = up ? "#7fd47f" : "#e06c5f";
+  // Only meaningful for series that straddle zero (e.g. % change).
+  const showBaseline = min < 0 && max > 0;
 
   return (
     <svg
@@ -48,15 +50,17 @@ export default function Sparkline({
       role="img"
       aria-label={`Trend, net ${up ? "up" : "down"}`}
     >
-      <line
-        x1={pad}
-        x2={width - pad}
-        y1={y(0)}
-        y2={y(0)}
-        stroke="#4a3f2e"
-        strokeWidth={1}
-        strokeDasharray="2 2"
-      />
+      {showBaseline && (
+        <line
+          x1={pad}
+          x2={width - pad}
+          y1={y(0)}
+          y2={y(0)}
+          stroke="#4a3f2e"
+          strokeWidth={1}
+          strokeDasharray="2 2"
+        />
+      )}
       <polyline
         points={points}
         fill="none"

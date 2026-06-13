@@ -30,10 +30,27 @@ Essences, …) are fetched and merged into one dropdown.
 
 ## Stonks tab
 
-The **Stonks** tab surfaces "investment opportunities": the top 10 items by
-7-day value gain (`sparkline.totalChange`), filtered to items with a
-substantial trade volume (≥ 500 divines, `volumePrimaryValue`). Each pick
-shows an inline sparkline of its 7-day value trend.
+The **Stonks** tab finds items "expected to rise most with inflation" by
+ranking on **inflation beta** rather than raw recent gain (which just
+surfaces spikes you've already missed):
+
+1. Filter to liquid items (≥ 500 divines volume, `volumePrimaryValue`).
+2. Pull each item's full daily divine-price history from the per-item
+   details endpoint (`exchange/current/details?...&id=<detailsId>`).
+3. Build a volume-weighted **market index** of daily returns — this
+   trajectory is the measured inflation of the divine-denominated basket.
+4. Regress each item's daily returns on the market's to get its **beta**
+   (sensitivity: >1 amplifies inflation) and **R²** (how reliably it
+   tracks the market).
+5. Rank by beta, keeping only items with R² ≥ 0.25 and enough history.
+
+Each pick shows its beta, R², realized change, and a sparkline of its
+actual divine-price history. The header reports the market drift over the
+window so you can see the inflation regime. See `src/invest.ts` for the
+math and `src/Stonks.tsx` for the orchestration.
+
+Note: beta finds inflation-*sensitive* assets from past prices; it can't
+predict patch/meta shifts, which aren't in the data.
 
 ## Caching
 

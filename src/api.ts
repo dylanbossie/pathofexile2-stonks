@@ -16,20 +16,12 @@ export interface NinjaItem {
   detailsId: string;
 }
 
-export interface Sparkline {
-  /** 7-day cumulative % change overall. */
-  totalChange: number;
-  /** 7 daily cumulative % change points. */
-  data: number[];
-}
-
 export interface NinjaLine {
   id: string;
   /** Value of one unit, denominated in the primary currency (divines). */
   primaryValue: number;
   /** Total trade volume, denominated in the primary currency (divines). */
   volumePrimaryValue: number;
-  sparkline: Sparkline;
 }
 
 export interface ExchangeOverview {
@@ -69,15 +61,26 @@ export interface PricedItem {
   /** Globally unique key: "<type>:<line id>". */
   key: string;
   name: string;
+  /** Human-readable category label (e.g. "Liquid Emotions"). */
   category: string;
+  /** poe.ninja API type, needed for the details endpoint (e.g. "Delirium"). */
+  type: string;
+  /** Slug for the details endpoint (e.g. "orb-of-chance"). */
+  detailsId: string;
   /** Value of one unit in divines. */
   unitDivines: number;
   /** Total trade volume in divines. */
   volumeDivines: number;
-  /** 7-day cumulative % change. */
-  totalChange: number;
-  /** 7 daily cumulative % change points. */
-  sparkline: number[];
+}
+
+/** One daily snapshot of an item's divine-denominated price. */
+export interface HistoryPoint {
+  /** ISO date (YYYY-MM-DD). */
+  date: string;
+  /** Unit value in divines on that day. */
+  rate: number;
+  /** Trade volume in divines on that day. */
+  volume: number;
 }
 
 export interface MergedEconomy {
@@ -162,17 +165,18 @@ export async function fetchEconomy(league: string): Promise<MergedEconomy> {
     const { overview } = result.value;
     fetchedAt = Math.max(fetchedAt, result.value.fetchedAt);
     exaltsPerDivine ??= overview.core.rates["exalted"] ?? null;
-    const names = new Map(overview.items.map((item) => [item.id, item.name]));
+    const meta = new Map(overview.items.map((item) => [item.id, item]));
     for (const line of overview.lines) {
       if (!(line.primaryValue > 0)) continue;
+      const m = meta.get(line.id);
       items.push({
         key: `${EXCHANGE_TYPES[i].type}:${line.id}`,
-        name: names.get(line.id) ?? line.id,
+        name: m?.name ?? line.id,
         category: EXCHANGE_TYPES[i].label,
+        type: EXCHANGE_TYPES[i].type,
+        detailsId: m?.detailsId ?? "",
         unitDivines: line.primaryValue,
         volumeDivines: line.volumePrimaryValue ?? 0,
-        totalChange: line.sparkline?.totalChange ?? 0,
-        sparkline: line.sparkline?.data ?? [],
       });
     }
   });
@@ -181,4 +185,64 @@ export async function fetchEconomy(league: string): Promise<MergedEconomy> {
     throw new Error(`No exchange data available for league "${league}"`);
   }
   return { exaltsPerDivine, items, fetchedAt };
+}
+
+interface DetailsResponse {
+  core: { primary: string };
+  pairs: {
+    id: string;
+    history: { timestamp: string; rate: number; volumePrimaryValue: number }[];
+  }[];
+}
+
+/**
+ * Full divine-denominated daily price history for a single item, oldest
+ * point first. Uses the same 15-minute cache as everything else.
+ */
+export async function fetchItemHistory(
+  league: string,
+  type: string,
+  detailsId: string,
+): Promise<HistoryPoint[]> {
+  const params = new URLSearchParams({ league, type, id: detailsId });
+  const { data } = await cachedFetchJson(
+    `/ninja/poe2/api/economy/exchange/current/details?${params}`,
+  );
+  const d = data as DetailsResponse;
+  // The pair against the primary currency (divine) is the divine price.
+  const pair = d.pairs.find((p) => p.id === d.core.primary);
+  if (!pair) return [];
+  return pair.history
+    .map((h) => ({
+      date: h.timestamp.slice(0, 10),
+      rate: h.rate,
+      volume: h.volumePrimaryValue,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once, invoking
+ * `onProgress` as each settles. Results preserve input order.
+ */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  let done = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+      onProgress?.(++done, items.length);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return out;
 }
