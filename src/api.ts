@@ -57,6 +57,14 @@ export const EXCHANGE_TYPES: { type: string; label: string }[] = [
   { type: "Verisium", label: "Verisium" },
 ];
 
+/**
+ * The most recent *ended* league. poe.ninja drops ended leagues from
+ * index-state, but still serves their full price history through the same
+ * endpoints, so we name it explicitly to mine that history. Update this when
+ * a new league ends.
+ */
+export const PRIOR_LEAGUE = "Fate of the Vaal";
+
 export interface PricedItem {
   /** Globally unique key: "<type>:<line id>". */
   key: string;

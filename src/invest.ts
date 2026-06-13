@@ -16,6 +16,12 @@ export interface Opportunity {
   /** Number of daily returns used in the regression. */
   points: number;
   history: HistoryPoint[];
+  /**
+   * The same item's prior-league price history, when available. Attached for
+   * the per-item expander/projection only — it does not affect the beta, R²,
+   * or any other current-league figure on the row.
+   */
+  priorHistory: HistoryPoint[] | null;
 }
 
 export interface InvestmentReport {
@@ -48,7 +54,7 @@ function dailyReturns(history: HistoryPoint[]): Map<string, number> {
  * Volume-weighted average daily return across all items, per date. This
  * trajectory is the measured "inflation" of the divine-denominated basket.
  */
-function buildMarketIndex(series: ItemSeries[]): Map<string, number> {
+export function buildMarketIndex(series: ItemSeries[]): Map<string, number> {
   const acc = new Map<string, { num: number; den: number }>();
   for (const s of series) {
     const weight = s.item.volumeDivines;
@@ -73,39 +79,66 @@ function marketDrift(market: Map<string, number>): number {
   return cumulative - 1;
 }
 
-/**
- * Regress an item's daily returns on the market's, over shared dates.
- * Returns the CAPM beta and R² (how reliably it tracks the market).
- */
-function regress(
+/** A single (market return, item return) observation on one date. */
+interface ReturnPair {
+  /** Market index return that day. */
+  x: number;
+  /** Item return that day. */
+  y: number;
+}
+
+/** Aligns an item's daily returns to a market index, yielding paired returns. */
+function returnPairs(
   itemReturns: Map<string, number>,
   market: Map<string, number>,
-): { beta: number; rSquared: number; points: number } | null {
-  const xs: number[] = [];
-  const ys: number[] = [];
+): ReturnPair[] {
+  const pairs: ReturnPair[] = [];
   for (const [date, ret] of itemReturns) {
     const m = market.get(date);
-    if (m !== undefined) {
-      xs.push(m);
-      ys.push(ret);
-    }
+    if (m !== undefined) pairs.push({ x: m, y: ret });
   }
-  const n = xs.length;
+  return pairs;
+}
+
+/**
+ * OLS regression of item returns on market returns over the pooled pairs,
+ * giving the CAPM beta (slope) and R² (fit). Pairs may come from more than
+ * one league — each aligned to its own market index before pooling — on the
+ * assumption that an item's sensitivity to inflation carries across leagues.
+ */
+function regressPairs(
+  pairs: ReturnPair[],
+): { beta: number; rSquared: number; points: number } | null {
+  const n = pairs.length;
   if (n < MIN_RETURN_PAIRS) return null;
 
-  const meanX = xs.reduce((a, b) => a + b, 0) / n;
-  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  let sumX = 0;
+  let sumY = 0;
+  for (const p of pairs) {
+    sumX += p.x;
+    sumY += p.y;
+  }
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+
   let cov = 0;
   let varX = 0;
   let varY = 0;
-  for (let i = 0; i < n; i++) {
-    cov += (xs[i] - meanX) * (ys[i] - meanY);
-    varX += (xs[i] - meanX) ** 2;
-    varY += (ys[i] - meanY) ** 2;
+  for (const p of pairs) {
+    const dx = p.x - meanX;
+    const dy = p.y - meanY;
+    cov += dx * dy;
+    varX += dx * dx;
+    varY += dy * dy;
   }
   if (varX === 0 || varY === 0) return null;
 
   return { beta: cov / varX, rSquared: (cov * cov) / (varX * varY), points: n };
+}
+
+/** Cross-league identity: the same item slug within the same category. */
+function identityKey(item: PricedItem): string {
+  return `${item.type}:${item.detailsId}`;
 }
 
 export interface RankOptions {
@@ -114,6 +147,13 @@ export interface RankOptions {
   minPrice?: number;
   /** Maximum current unit price in divines (Infinity = no maximum). */
   maxPrice?: number;
+  /**
+   * Histories from a prior (typically ended) league. Used only to attach each
+   * item's prior-league history to its opportunity (for the expander and
+   * forward projection) — it does NOT influence the beta, R², or any other
+   * current-league figure. Matched by cross-league identity.
+   */
+  priorSeries?: ItemSeries[];
 }
 
 /**
@@ -135,20 +175,28 @@ export function rankOpportunities(
     minRSquared = DEFAULT_MIN_R_SQUARED,
     minPrice = 0,
     maxPrice = Infinity,
+    priorSeries,
   } = options;
 
   const usable = series.filter((s) => s.history.length >= MIN_POINTS);
   const market = buildMarketIndex(usable);
 
+  // Index the prior league by cross-league identity, so we can attach each
+  // item's prior history for the expander (not for the regression).
+  const priorByIdentity = new Map<string, ItemSeries>();
+  for (const s of priorSeries ?? []) priorByIdentity.set(identityKey(s.item), s);
+
   const opportunities: Opportunity[] = [];
   for (const s of usable) {
     const price = s.item.unitDivines;
     if (price < minPrice || price > maxPrice) continue;
-    const reg = regress(dailyReturns(s.history), market);
+
+    const reg = regressPairs(returnPairs(dailyReturns(s.history), market));
     if (!reg || reg.rSquared < minRSquared) continue;
     const h = s.history;
     const realizedChange =
       h[0].rate > 0 ? h[h.length - 1].rate / h[0].rate - 1 : 0;
+    const prior = priorByIdentity.get(identityKey(s.item));
     opportunities.push({
       item: s.item,
       beta: reg.beta,
@@ -156,6 +204,7 @@ export function rankOpportunities(
       realizedChange,
       points: reg.points,
       history: h,
+      priorHistory: prior && prior.history.length > 0 ? prior.history : null,
     });
   }
   opportunities.sort((a, b) => b.beta - a.beta);

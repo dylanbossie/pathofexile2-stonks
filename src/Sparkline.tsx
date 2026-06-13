@@ -5,6 +5,11 @@ interface SparklineProps {
   height?: number;
   /** Line color hint; defaults to up=green / down=red by net direction. */
   positive?: boolean;
+  /**
+   * Optional vertical reference line at this fraction (0–1) of the width,
+   * e.g. to mark "today" aligned by day-in-league. Omitted when undefined.
+   */
+  markerFraction?: number;
 }
 
 /**
@@ -17,6 +22,7 @@ export default function Sparkline({
   width = 120,
   height = 36,
   positive,
+  markerFraction,
 }: SparklineProps) {
   if (data.length < 2) {
     return <svg width={width} height={height} className="sparkline" />;
@@ -41,6 +47,11 @@ export default function Sparkline({
   const stroke = up ? "#86b46e" : "#c25a4e";
   // Only meaningful for series that straddle zero (e.g. % change).
   const showBaseline = min < 0 && max > 0;
+
+  const markerX =
+    markerFraction === undefined
+      ? null
+      : pad + Math.max(0, Math.min(1, markerFraction)) * w;
 
   return (
     <svg
@@ -69,6 +80,17 @@ export default function Sparkline({
         strokeLinejoin="round"
         strokeLinecap="round"
       />
+      {markerX !== null && (
+        <line
+          x1={markerX}
+          x2={markerX}
+          y1={pad}
+          y2={height - pad}
+          stroke="#6a583b"
+          strokeWidth={1}
+          strokeDasharray="3 3"
+        />
+      )}
     </svg>
   );
 }

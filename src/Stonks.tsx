@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchItemHistory, mapLimit, type MergedEconomy } from "./api";
+import {
+  fetchEconomy,
+  fetchItemHistory,
+  mapLimit,
+  PRIOR_LEAGUE,
+  type MergedEconomy,
+  type PricedItem,
+} from "./api";
 import { formatNumber } from "./format";
 import {
   DEFAULT_MIN_R_SQUARED,
@@ -7,8 +14,17 @@ import {
   type ItemSeries,
 } from "./invest";
 import Sparkline from "./Sparkline";
+import Portfolio from "./Portfolio";
+import { usePortfolio } from "./portfolio";
+import PriorDetail from "./PriorDetail";
+import {
+  leagueStartMs,
+  priorMarketReturns,
+  type ProjectionContext,
+} from "./projection";
 
 const DEFAULT_VOLUME_FLOOR = 500;
+const DEFAULT_HORIZON_DAYS = 30;
 const PAGE_SIZE = 10;
 /** Concurrent detail requests; poe.ninja tolerates this comfortably. */
 const FETCH_CONCURRENCY = 8;
@@ -37,13 +53,23 @@ export default function Stonks({
   // were fetched with (so we can tell the user when it's gone stale).
   const [series, setSeries] = useState<ItemSeries[] | null>(null);
   const [ranWithFloor, setRanWithFloor] = useState(volumeFloor);
+  // Prior-league histories (for the per-item expander + projection only), and
+  // whether the current results were fetched with them (to flag a stale toggle).
+  const [usePrior, setUsePrior] = useState(false);
+  const [priorSeries, setPriorSeries] = useState<ItemSeries[] | null>(null);
+  const [ranWithPrior, setRanWithPrior] = useState(false);
+  // How many days forward the projection extends, and which rows are expanded.
+  const [horizonDays, setHorizonDays] = useState(DEFAULT_HORIZON_DAYS);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const portfolio = usePortfolio(league);
 
   // Stale results shouldn't survive a league/data change.
   useEffect(() => {
     setSeries(null);
+    setPriorSeries(null);
     setError(null);
   }, [economy]);
 
@@ -57,47 +83,108 @@ export default function Stonks({
             minRSquared,
             minPrice: parsePrice(minPrice, 0),
             maxPrice: parsePrice(maxPrice, Infinity),
+            priorSeries: priorSeries ?? undefined,
           })
         : null,
-    [series, minRSquared, minPrice, maxPrice],
+    [series, priorSeries, minRSquared, minPrice, maxPrice],
   );
 
   // Any change to the filtered set returns us to the first page.
   useEffect(() => {
     setPage(0);
-  }, [series, minRSquared, minPrice, maxPrice]);
+  }, [series, priorSeries, minRSquared, minPrice, maxPrice]);
+
+  // Shared inputs for every item's projection: each league's start day and the
+  // prior league's cumulative market path. Recomputed only when the data does.
+  const projectionCtx = useMemo<ProjectionContext | null>(() => {
+    if (!series || !priorSeries) return null;
+    const currentStartMs = leagueStartMs(series);
+    const priorStartMs = leagueStartMs(priorSeries);
+    if (currentStartMs === null || priorStartMs === null) return null;
+    return {
+      currentStartMs,
+      priorStartMs,
+      priorMarketRet: priorMarketReturns(priorSeries, priorStartMs),
+    };
+  }, [series, priorSeries]);
+
+  function toggleExpanded(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function generate() {
     if (!economy || running) return;
     setRunning(true);
     setError(null);
     setSeries(null);
+    setPriorSeries(null);
 
     const liquid = economy.items.filter(
       (item) => item.volumeDivines >= volumeFloor && item.detailsId,
     );
-    setProgress({ done: 0, total: liquid.length });
 
     try {
-      const fetched = await mapLimit<(typeof liquid)[number], ItemSeries>(
-        liquid,
-        FETCH_CONCURRENCY,
-        async (item) => {
-          try {
-            const history = await fetchItemHistory(
-              league,
-              item.type,
-              item.detailsId,
-            );
-            return { item, history };
-          } catch {
-            return { item, history: [] };
+      // When pooling prior history, load that league's economy to learn which
+      // of our liquid items existed then, and fetch only those (matched by the
+      // same category + slug).
+      let priorTargets: PricedItem[] = [];
+      if (usePrior) {
+        try {
+          const priorEconomy = await fetchEconomy(PRIOR_LEAGUE);
+          const priorByIdentity = new Map<string, PricedItem>();
+          for (const it of priorEconomy.items) {
+            if (it.detailsId) {
+              priorByIdentity.set(`${it.type}:${it.detailsId}`, it);
+            }
           }
-        },
-        (done, total) => setProgress({ done, total }),
-      );
+          priorTargets = liquid
+            .map((it) => priorByIdentity.get(`${it.type}:${it.detailsId}`))
+            .filter((it): it is PricedItem => Boolean(it));
+        } catch {
+          // Prior data unavailable; fall back to a current-league-only run.
+          priorTargets = [];
+        }
+      }
+
+      const total = liquid.length + priorTargets.length;
+      let done = 0;
+      setProgress({ done, total });
+      const bump = () => setProgress({ done: ++done, total });
+
+      const fetchSeries = (forLeague: string, items: PricedItem[]) =>
+        mapLimit<PricedItem, ItemSeries>(
+          items,
+          FETCH_CONCURRENCY,
+          async (item) => {
+            try {
+              const history = await fetchItemHistory(
+                forLeague,
+                item.type,
+                item.detailsId,
+              );
+              return { item, history };
+            } catch {
+              return { item, history: [] };
+            }
+          },
+          bump,
+        );
+
+      const fetched = await fetchSeries(league, liquid);
+      const prior = priorTargets.length
+        ? await fetchSeries(PRIOR_LEAGUE, priorTargets)
+        : [];
+
       setSeries(fetched);
+      setPriorSeries(usePrior ? prior : null);
+      setExpanded(new Set());
       setRanWithFloor(volumeFloor);
+      setRanWithPrior(usePrior);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -106,6 +193,9 @@ export default function Stonks({
   }
 
   const floorStale = series !== null && ranWithFloor !== volumeFloor;
+  const priorStale = series !== null && usePrior !== ranWithPrior;
+
+  const trackedKeys = new Set(portfolio.positions.map((p) => p.key));
 
   const opps = report?.opportunities ?? [];
   const pageCount = Math.max(1, Math.ceil(opps.length / PAGE_SIZE));
@@ -115,6 +205,8 @@ export default function Stonks({
 
   return (
     <>
+      <Portfolio economy={economy} loading={loading} portfolio={portfolio} />
+
       <div className="controls">
         <label title="Only consider items trading at least this much volume (in Divines). Higher = only deep, liquid markets you can actually buy and sell in.">
           Min volume (div)
@@ -166,6 +258,36 @@ export default function Stonks({
             onChange={(e) => setMinRSquared(Number(e.target.value))}
           />
         </label>
+
+        <label
+          className="checkbox"
+          title={`Fetch each item's price history from the previous league (${PRIOR_LEAGUE}). It doesn't change the ranking — items that existed then get a ▸ expander with their prior price chart and a forward projection.`}
+        >
+          <input
+            type="checkbox"
+            checked={usePrior}
+            onChange={(e) => setUsePrior(e.target.checked)}
+          />
+          Include previous league history
+        </label>
+
+        {usePrior && (
+          <label title="How many days forward the per-item projection extends, aligned by day-in-league.">
+            Project (days)
+            <input
+              type="number"
+              min={1}
+              max={180}
+              step={5}
+              value={horizonDays}
+              onChange={(e) =>
+                setHorizonDays(
+                  Math.max(1, Math.min(180, Math.floor(Number(e.target.value) || 1))),
+                )
+              }
+            />
+          </label>
+        )}
 
         <button
           type="button"
@@ -224,6 +346,15 @@ export default function Stonks({
             (in Divines). High volume = an active market you can actually buy
             and sell in.
           </dd>
+          <dt>▸ expander</dt>
+          <dd>
+            Shown when “Include previous league history” is on and the item
+            also existed in {PRIOR_LEAGUE}. Expand it for that league’s price
+            chart and a forward projection of the current price — one line
+            tracing the item’s own prior path from the same day-in-league, one
+            from its β × that league’s market inflation. It never changes the
+            β, R², or other figures on the row.
+          </dd>
         </dl>
         <p className="muted">
           All of this is built from past prices — it finds historically
@@ -241,6 +372,13 @@ export default function Stonks({
         <p className="muted">
           Volume floor changed to {formatNumber(volumeFloor, 0)} — re-run to
           apply (showing results for ≥ {formatNumber(ranWithFloor, 0)}).
+        </p>
+      )}
+
+      {priorStale && (
+        <p className="muted">
+          Previous-league history {usePrior ? "enabled" : "disabled"} — re-run
+          to apply.
         </p>
       )}
 
@@ -281,11 +419,29 @@ export default function Stonks({
               <p className="muted">
                 {formatNumber(opps.length, 0)} matching item
                 {opps.length === 1 ? "" : "s"}, ranked by beta.
+                {ranWithPrior &&
+                  (() => {
+                    const withPrior = opps.filter((o) => o.priorHistory).length;
+                    return withPrior > 0
+                      ? ` ${formatNumber(withPrior, 0)} have ${PRIOR_LEAGUE} history — expand a ▸ row to see it.`
+                      : ` None of these existed in ${PRIOR_LEAGUE}.`;
+                  })()}
               </p>
               <ol className="opportunities" start={pageStart + 1}>
               {pageItems.map((opp) => (
                 <li key={opp.item.key}>
                   <span className="opp-name">
+                    {opp.priorHistory && projectionCtx && (
+                      <button
+                        type="button"
+                        className="opp-expander"
+                        aria-expanded={expanded.has(opp.item.key)}
+                        title={`Show ${PRIOR_LEAGUE} chart and projection`}
+                        onClick={() => toggleExpanded(opp.item.key)}
+                      >
+                        {expanded.has(opp.item.key) ? "▾" : "▸"}
+                      </button>
+                    )}
                     {opp.item.name}
                     <span className="muted"> · {opp.item.category}</span>
                   </span>
@@ -316,7 +472,41 @@ export default function Stonks({
                     <span title="Trade volume in Divines; higher = a more liquid market.">
                       vol {formatNumber(opp.item.volumeDivines, 0)}
                     </span>
+                    <button
+                      type="button"
+                      className="track"
+                      disabled={trackedKeys.has(opp.item.key)}
+                      title={
+                        trackedKeys.has(opp.item.key)
+                          ? "Already in your portfolio"
+                          : "Add one unit to your portfolio at the current price"
+                      }
+                      onClick={() =>
+                        portfolio.addPosition({
+                          key: opp.item.key,
+                          name: opp.item.name,
+                          category: opp.item.category,
+                          quantity: 1,
+                          buyDivines: opp.item.unitDivines,
+                        })
+                      }
+                    >
+                      {trackedKeys.has(opp.item.key) ? "Tracked" : "Track"}
+                    </button>
                   </span>
+                  {expanded.has(opp.item.key) &&
+                    opp.priorHistory &&
+                    projectionCtx && (
+                      <div className="opp-detail">
+                        <PriorDetail
+                          currentHistory={opp.history}
+                          priorHistory={opp.priorHistory}
+                          beta={opp.beta}
+                          horizonDays={horizonDays}
+                          ctx={projectionCtx}
+                        />
+                      </div>
+                    )}
                 </li>
               ))}
               </ol>
