@@ -38,7 +38,7 @@ export default function Sparkline({
     .join(" ");
 
   const up = positive ?? data[data.length - 1] >= data[0];
-  const stroke = up ? "#7fd47f" : "#e06c5f";
+  const stroke = up ? "#86b46e" : "#c25a4e";
   // Only meaningful for series that straddle zero (e.g. % change).
   const showBaseline = min < 0 && max > 0;
 
@@ -56,7 +56,7 @@ export default function Sparkline({
           x2={width - pad}
           y1={y(0)}
           y2={y(0)}
-          stroke="#4a3f2e"
+          stroke="#463a27"
           strokeWidth={1}
           strokeDasharray="2 2"
         />

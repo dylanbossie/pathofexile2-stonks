@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 *.local
 .DS_Store
+
+# Playwright screenshot artifacts from the style-inspection scripts
+scripts/*.png
