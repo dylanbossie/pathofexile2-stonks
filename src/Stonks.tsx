@@ -9,9 +9,15 @@ import {
 import Sparkline from "./Sparkline";
 
 const DEFAULT_VOLUME_FLOOR = 500;
-const TOP_N = 10;
+const PAGE_SIZE = 10;
 /** Concurrent detail requests; poe.ninja tolerates this comfortably. */
 const FETCH_CONCURRENCY = 8;
+
+/** Parse a price input; blank/invalid means "no limit" via the fallback. */
+function parsePrice(value: string, fallback: number): number {
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
 
 export default function Stonks({
   economy,
@@ -24,6 +30,9 @@ export default function Stonks({
 }) {
   const [volumeFloor, setVolumeFloor] = useState(DEFAULT_VOLUME_FLOOR);
   const [minRSquared, setMinRSquared] = useState(DEFAULT_MIN_R_SQUARED);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [page, setPage] = useState(0);
   // The fetched histories from the last run, plus the volume floor they
   // were fetched with (so we can tell the user when it's gone stale).
   const [series, setSeries] = useState<ItemSeries[] | null>(null);
@@ -38,12 +47,25 @@ export default function Stonks({
     setError(null);
   }, [economy]);
 
-  // R² only filters the final ranking, so re-rank instantly with no refetch.
-  // (Volume floor changes the fetched set, so it requires re-running.)
+  // R² and the price window only filter the final ranking, so re-rank
+  // instantly with no refetch. (Volume floor changes the fetched set and
+  // the market basket, so it requires re-running.)
   const report = useMemo(
-    () => (series ? rankOpportunities(series, TOP_N, minRSquared) : null),
-    [series, minRSquared],
+    () =>
+      series
+        ? rankOpportunities(series, {
+            minRSquared,
+            minPrice: parsePrice(minPrice, 0),
+            maxPrice: parsePrice(maxPrice, Infinity),
+          })
+        : null,
+    [series, minRSquared, minPrice, maxPrice],
   );
+
+  // Any change to the filtered set returns us to the first page.
+  useEffect(() => {
+    setPage(0);
+  }, [series, minRSquared, minPrice, maxPrice]);
 
   async function generate() {
     if (!economy || running) return;
@@ -85,6 +107,12 @@ export default function Stonks({
 
   const floorStale = series !== null && ranWithFloor !== volumeFloor;
 
+  const opps = report?.opportunities ?? [];
+  const pageCount = Math.max(1, Math.ceil(opps.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = safePage * PAGE_SIZE;
+  const pageItems = opps.slice(pageStart, pageStart + PAGE_SIZE);
+
   return (
     <>
       <div className="controls">
@@ -98,6 +126,32 @@ export default function Stonks({
             onChange={(e) =>
               setVolumeFloor(Math.max(0, Math.floor(Number(e.target.value) || 0)))
             }
+          />
+        </label>
+
+        <label title="Only show opportunities priced at or above this many Divines per unit. Leave blank for no minimum.">
+          Min price (div)
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            placeholder="0"
+            className="price-input"
+            value={minPrice}
+            onChange={(e) => setMinPrice(e.target.value)}
+          />
+        </label>
+
+        <label title="Only show opportunities priced at or below this many Divines per unit. Leave blank for no maximum.">
+          Max price (div)
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            placeholder="∞"
+            className="price-input"
+            value={maxPrice}
+            onChange={(e) => setMaxPrice(e.target.value)}
           />
         </label>
 
@@ -124,11 +178,11 @@ export default function Stonks({
       </div>
 
       <p className="muted stonks-criteria">
-        Ranks the top {TOP_N} items by <strong>inflation beta</strong> — how
-        hard each amplifies the market-wide price trend — among items trading
-        at ≥ {formatNumber(volumeFloor, 0)} divines volume, using full daily
-        price history in divines. R² filters out items that don't reliably
-        track the market.
+        Ranks items by <strong>inflation beta</strong> — how hard each
+        amplifies the market-wide price trend — among items trading at ≥{" "}
+        {formatNumber(volumeFloor, 0)} divines volume, using full daily price
+        history in divines. R² and the price window filter the list; results
+        are paginated {PAGE_SIZE} per page.
       </p>
 
       <details className="legend">
@@ -216,15 +270,20 @@ export default function Stonks({
             )}
           </p>
 
-          {report.opportunities.length === 0 ? (
+          {opps.length === 0 ? (
             <p className="muted">
-              No items cleared the volume, history, and R² ≥{" "}
-              {formatNumber(minRSquared, 2)} filters. Try lowering the
-              thresholds.
+              No items cleared the volume, history, price, and R² ≥{" "}
+              {formatNumber(minRSquared, 2)} filters. Try widening the price
+              window or lowering the thresholds.
             </p>
           ) : (
-            <ol className="opportunities">
-              {report.opportunities.map((opp) => (
+            <>
+              <p className="muted">
+                {formatNumber(opps.length, 0)} matching item
+                {opps.length === 1 ? "" : "s"}, ranked by beta.
+              </p>
+              <ol className="opportunities" start={pageStart + 1}>
+              {pageItems.map((opp) => (
                 <li key={opp.item.key}>
                   <span className="opp-name">
                     {opp.item.name}
@@ -260,7 +319,30 @@ export default function Stonks({
                   </span>
                 </li>
               ))}
-            </ol>
+              </ol>
+
+              {pageCount > 1 && (
+                <div className="pager">
+                  <button
+                    type="button"
+                    onClick={() => setPage(safePage - 1)}
+                    disabled={safePage === 0}
+                  >
+                    ‹ Prev
+                  </button>
+                  <span className="muted">
+                    Page {safePage + 1} of {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage(safePage + 1)}
+                    disabled={safePage >= pageCount - 1}
+                  >
+                    Next ›
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

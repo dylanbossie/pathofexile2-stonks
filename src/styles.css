@@ -63,6 +63,32 @@ h1 {
   flex: 1 1 14rem;
 }
 
+.price-input {
+  min-width: 6rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.pager button {
+  padding: 0.4rem 0.9rem;
+  background: #241e16;
+  color: #e8ddc8;
+  border: 1px solid #4a3f2e;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.pager button:disabled {
+  color: #6a5f4a;
+  cursor: not-allowed;
+}
+
 .legend {
   margin: 0 0 1.25rem;
   padding: 0.5rem 0.85rem;

@@ -108,22 +108,42 @@ function regress(
   return { beta: cov / varX, rSquared: (cov * cov) / (varX * varY), points: n };
 }
 
+export interface RankOptions {
+  minRSquared?: number;
+  /** Minimum current unit price in divines (0 = no minimum). */
+  minPrice?: number;
+  /** Maximum current unit price in divines (Infinity = no maximum). */
+  maxPrice?: number;
+}
+
 /**
  * Ranks items by their inflation beta — sensitivity to the market index —
- * keeping only those that track the market reliably (R² ≥ threshold) and
- * have enough history. Beta > 1 means the item amplifies inflation; under a
- * positive market drift these are the items expected to rise the most.
+ * keeping only those that track the market reliably (R² ≥ threshold), sit
+ * in the price window, and have enough history. Beta > 1 means the item
+ * amplifies inflation; under a positive market drift these are the items
+ * expected to rise the most. Returns all matches, sorted by beta.
+ *
+ * The market index is built from the full liquid basket regardless of the
+ * price window — the window narrows which opportunities you see, not what
+ * counts as "the economy".
  */
 export function rankOpportunities(
   series: ItemSeries[],
-  topN: number,
-  minRSquared: number = DEFAULT_MIN_R_SQUARED,
+  options: RankOptions = {},
 ): InvestmentReport {
+  const {
+    minRSquared = DEFAULT_MIN_R_SQUARED,
+    minPrice = 0,
+    maxPrice = Infinity,
+  } = options;
+
   const usable = series.filter((s) => s.history.length >= MIN_POINTS);
   const market = buildMarketIndex(usable);
 
   const opportunities: Opportunity[] = [];
   for (const s of usable) {
+    const price = s.item.unitDivines;
+    if (price < minPrice || price > maxPrice) continue;
     const reg = regress(dailyReturns(s.history), market);
     if (!reg || reg.rSquared < minRSquared) continue;
     const h = s.history;
@@ -143,6 +163,6 @@ export function rankOpportunities(
   return {
     marketDrift: marketDrift(market),
     windowDays: market.size,
-    opportunities: opportunities.slice(0, topN),
+    opportunities,
   };
 }

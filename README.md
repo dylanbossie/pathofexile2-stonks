@@ -49,6 +49,14 @@ actual divine-price history. The header reports the market drift over the
 window so you can see the inflation regime. See `src/invest.ts` for the
 math and `src/Stonks.tsx` for the orchestration.
 
+The volume floor, R² threshold, and a price window (min/max divines) are
+adjustable in the UI, and all matches are paginated (10 per page). The
+volume floor changes the fetched set and the market basket, so it applies
+on the next run; R² and the price window only filter the ranking, so they
+re-rank instantly with no new requests. The price window deliberately does
+*not* affect the market index — it narrows what you see, not what counts
+as "the economy".
+
 Note: beta finds inflation-*sensitive* assets from past prices; it can't
 predict patch/meta shifts, which aren't in the data.
 
