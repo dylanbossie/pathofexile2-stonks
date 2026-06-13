@@ -16,10 +16,20 @@ export interface NinjaItem {
   detailsId: string;
 }
 
+export interface Sparkline {
+  /** 7-day cumulative % change overall. */
+  totalChange: number;
+  /** 7 daily cumulative % change points. */
+  data: number[];
+}
+
 export interface NinjaLine {
   id: string;
   /** Value of one unit, denominated in the primary currency (divines). */
   primaryValue: number;
+  /** Total trade volume, denominated in the primary currency (divines). */
+  volumePrimaryValue: number;
+  sparkline: Sparkline;
 }
 
 export interface ExchangeOverview {
@@ -62,6 +72,12 @@ export interface PricedItem {
   category: string;
   /** Value of one unit in divines. */
   unitDivines: number;
+  /** Total trade volume in divines. */
+  volumeDivines: number;
+  /** 7-day cumulative % change. */
+  totalChange: number;
+  /** 7 daily cumulative % change points. */
+  sparkline: number[];
 }
 
 export interface MergedEconomy {
@@ -154,6 +170,9 @@ export async function fetchEconomy(league: string): Promise<MergedEconomy> {
         name: names.get(line.id) ?? line.id,
         category: EXCHANGE_TYPES[i].label,
         unitDivines: line.primaryValue,
+        volumeDivines: line.volumePrimaryValue ?? 0,
+        totalChange: line.sparkline?.totalChange ?? 0,
+        sparkline: line.sparkline?.data ?? [],
       });
     }
   });

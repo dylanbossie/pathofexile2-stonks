@@ -28,6 +28,13 @@ Essences, …) are fetched and merged into one dropdown.
 - the recommended denomination is whichever post-rounding price is worth
   more (divine price compared via `sellDivines × ratio`)
 
+## Stonks tab
+
+The **Stonks** tab surfaces "investment opportunities": the top 10 items by
+7-day value gain (`sparkline.totalChange`), filtered to items with a
+substantial trade volume (≥ 500 divines, `volumePrimaryValue`). Each pick
+shows an inline sparkline of its 7-day value trend.
+
 ## Caching
 
 Every poe.ninja response is cached in `localStorage` for 15 minutes, so

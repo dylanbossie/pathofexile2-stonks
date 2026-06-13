@@ -19,11 +19,92 @@ h1 {
   color: #d4af37;
 }
 
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tabs button {
+  padding: 0.5rem 1rem;
+  background: #241e16;
+  color: #c9bda3;
+  border: 1px solid #4a3f2e;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: #d4af37;
+  color: #16120e;
+  font-weight: 600;
+  border-color: #d4af37;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.stonks-criteria {
+  margin: 0;
+  flex: 1 1 14rem;
+}
+
+.opportunities {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.opportunities li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #332b1f;
+}
+
+.opp-name {
+  font-weight: 600;
+}
+
+.opp-meta {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+}
+
+.opp-change {
+  font-weight: 600;
+  text-align: right;
+  min-width: 4rem;
+}
+
+.opp-change.up {
+  color: #7fd47f;
+}
+
+.opp-change.down {
+  color: #e06c5f;
+}
+
+.sparkline {
+  display: block;
 }
 
 label {
