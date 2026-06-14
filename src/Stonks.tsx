@@ -37,10 +37,13 @@ function parsePrice(value: string, fallback: number): number {
 
 export default function Stonks({
   economy,
+  priorEconomy,
   league,
   loading,
 }: {
   economy: MergedEconomy | null;
+  /** Prior (ended) league economy, prefetched in App and shared tab-wide. */
+  priorEconomy: MergedEconomy | null;
   league: string;
   loading: boolean;
 }) {
@@ -48,6 +51,7 @@ export default function Stonks({
   const [minRSquared, setMinRSquared] = useState(DEFAULT_MIN_R_SQUARED);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   // The fetched histories from the last run, plus the volume floor they
   // were fetched with (so we can tell the user when it's gone stale).
@@ -92,7 +96,14 @@ export default function Stonks({
   // Any change to the filtered set returns us to the first page.
   useEffect(() => {
     setPage(0);
-  }, [series, priorSeries, minRSquared, minPrice, maxPrice]);
+  }, [series, priorSeries, minRSquared, minPrice, maxPrice, query]);
+
+  // Item betas from the latest ranking, for the portfolio's projection lines.
+  const betaByKey = useMemo(
+    () =>
+      new Map((report?.opportunities ?? []).map((o) => [o.item.key, o.beta])),
+    [report],
+  );
 
   // Shared inputs for every item's projection: each league's start day and the
   // prior league's cumulative market path. Recomputed only when the data does.
@@ -135,9 +146,11 @@ export default function Stonks({
       let priorTargets: PricedItem[] = [];
       if (usePrior) {
         try {
-          const priorEconomy = await fetchEconomy(PRIOR_LEAGUE);
+          // Use the tab-wide prefetched prior economy; fall back to fetching
+          // it directly if it hasn't landed yet (cached, so effectively free).
+          const priorEcon = priorEconomy ?? (await fetchEconomy(PRIOR_LEAGUE));
           const priorByIdentity = new Map<string, PricedItem>();
-          for (const it of priorEconomy.items) {
+          for (const it of priorEcon.items) {
             if (it.detailsId) {
               priorByIdentity.set(`${it.type}:${it.detailsId}`, it);
             }
@@ -197,7 +210,11 @@ export default function Stonks({
 
   const trackedKeys = new Set(portfolio.positions.map((p) => p.key));
 
-  const opps = report?.opportunities ?? [];
+  const allOpps = report?.opportunities ?? [];
+  const trimmedQuery = query.trim().toLowerCase();
+  const opps = trimmedQuery
+    ? allOpps.filter((o) => o.item.name.toLowerCase().includes(trimmedQuery))
+    : allOpps;
   const pageCount = Math.max(1, Math.ceil(opps.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageStart = safePage * PAGE_SIZE;
@@ -205,7 +222,15 @@ export default function Stonks({
 
   return (
     <>
-      <Portfolio economy={economy} loading={loading} portfolio={portfolio} />
+      <Portfolio
+        economy={economy}
+        priorEconomy={priorEconomy}
+        league={league}
+        loading={loading}
+        portfolio={portfolio}
+        projectionCtx={projectionCtx}
+        betaByKey={betaByKey}
+      />
 
       <div className="controls">
         <label title="Only consider items trading at least this much volume (in Divines). Higher = only deep, liquid markets you can actually buy and sell in.">
@@ -408,12 +433,40 @@ export default function Stonks({
             )}
           </p>
 
+          {allOpps.length > 0 && (
+            <div className="opp-search">
+              <input
+                type="search"
+                placeholder="Filter results by name…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Filter opportunities by name"
+              />
+              {trimmedQuery && (
+                <button
+                  type="button"
+                  className="opp-search-clear"
+                  title="Clear filter"
+                  onClick={() => setQuery("")}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
           {opps.length === 0 ? (
-            <p className="muted">
-              No items cleared the volume, history, price, and R² ≥{" "}
-              {formatNumber(minRSquared, 2)} filters. Try widening the price
-              window or lowering the thresholds.
-            </p>
+            allOpps.length === 0 ? (
+              <p className="muted">
+                No items cleared the volume, history, price, and R² ≥{" "}
+                {formatNumber(minRSquared, 2)} filters. Try widening the price
+                window or lowering the thresholds.
+              </p>
+            ) : (
+              <p className="muted">
+                No results match “{query.trim()}”.
+              </p>
+            )
           ) : (
             <>
               <p className="muted">

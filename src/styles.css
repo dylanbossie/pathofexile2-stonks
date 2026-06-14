@@ -338,6 +338,35 @@ h1 {
   margin: 0.85rem 0 0;
 }
 
+/* Name filter over the ranked opportunity list. */
+.opp-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.opp-search input {
+  width: 100%;
+  min-width: 0;
+}
+
+.opp-search-clear {
+  position: absolute;
+  right: 0.5rem;
+  padding: 0.15rem 0.4rem;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.opp-search-clear:hover {
+  color: var(--gold);
+}
+
 .opportunities {
   margin: 0;
   padding-left: 1.5rem;
@@ -541,6 +570,36 @@ td:last-child {
 .portfolio {
   margin-top: 0;
   margin-bottom: 1.5rem;
+}
+
+/* Aggregate value-over-time chart above the holdings table. */
+.portfolio-graph {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.portfolio-chart {
+  width: 100%;
+}
+
+/* Per-holding price sparkline column. */
+.holding-trend {
+  width: 88px;
+}
+
+.holding-trend .sparkline {
+  margin-left: auto;
+}
+
+/* Expanded Fate of the Vaal panel spanning a holding row. */
+.holding-detail-row > .holding-detail {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
 }
 
 .portfolio-add {

@@ -1,11 +1,28 @@
-import { useMemo, useState } from "react";
-import type { MergedEconomy, PricedItem } from "./api";
+import { Fragment, useMemo, useState } from "react";
+import { PRIOR_LEAGUE, type MergedEconomy, type PricedItem } from "./api";
 import { formatNumber } from "./format";
 import ItemSearch from "./ItemSearch";
+import PortfolioChart from "./PortfolioChart";
+import PriorDetail from "./PriorDetail";
+import Sparkline from "./Sparkline";
+import { portfolioValueSeries, usePortfolioHistories } from "./portfolioHistory";
 import {
   valuePortfolio,
   type Portfolio as PortfolioApi,
 } from "./portfolioStore";
+import type { ProjectionContext } from "./projection";
+
+/** Days forward the per-holding Fate of the Vaal projection extends. */
+const PROJECTION_HORIZON_DAYS = 30;
+
+/** Earliest history date (ms) across a set of holding histories, or null. */
+function earliestDate(histories: { date: string }[][]): number | null {
+  let min = Infinity;
+  for (const h of histories) {
+    for (const p of h) min = Math.min(min, Date.parse(p.date));
+  }
+  return Number.isFinite(min) ? min : null;
+}
 
 /** Parse a user-typed number, returning `fallback` for blank/invalid input. */
 function parseNum(value: string, fallback: number): number {
@@ -20,12 +37,28 @@ function signedDiv(n: number): string {
 
 export default function Portfolio({
   economy,
+  priorEconomy,
+  league,
   loading,
   portfolio,
+  projectionCtx,
+  betaByKey,
 }: {
   economy: MergedEconomy | null;
+  /** Prior (ended) league economy, prefetched in App and shared tab-wide. */
+  priorEconomy: MergedEconomy | null;
+  league: string;
   loading: boolean;
   portfolio: PortfolioApi;
+  /**
+   * Projection context from the analyzer (broad-basket league-start days and
+   * prior-league market returns), when it has been run with prior history.
+   * Enables the β × market projection line; absent, only the item's own prior
+   * path is projected.
+   */
+  projectionCtx: ProjectionContext | null;
+  /** Per-item inflation beta from the latest analysis, by item key. */
+  betaByKey: Map<string, number>;
 }) {
   const { positions, addPosition, updatePosition, removePosition } = portfolio;
 
@@ -34,11 +67,82 @@ export default function Portfolio({
   const [buy, setBuy] = useState("");
   // Bumped after each add to remount (and so clear) the search box.
   const [searchKey, setSearchKey] = useState(0);
+  // Which holdings have their Fate of the Vaal panel expanded.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const { byKey: histories, loading: historyLoading } = usePortfolioHistories(
+    league,
+    positions,
+    economy,
+    priorEconomy,
+  );
 
   const valuation = useMemo(
     () => valuePortfolio(positions, economy),
     [positions, economy],
   );
+
+  // Aggregate value-over-time across every holding that has a price history.
+  const valueSeries = useMemo(
+    () =>
+      portfolioValueSeries(
+        positions.map((p) => ({
+          quantity: p.quantity,
+          history: histories.get(p.key)?.current ?? [],
+        })),
+      ),
+    [positions, histories],
+  );
+
+  // League-start days for projections: reuse the analyzer's when present (so
+  // the β line aligns with it), otherwise derive from the holdings' own
+  // histories. priorMarketRet is only available from the analyzer.
+  const startDays = useMemo<{ current: number; prior: number } | null>(() => {
+    if (projectionCtx) {
+      return {
+        current: projectionCtx.currentStartMs,
+        prior: projectionCtx.priorStartMs,
+      };
+    }
+    const hist = [...histories.values()];
+    const current = earliestDate(hist.map((h) => h.current));
+    const prior = earliestDate(hist.map((h) => h.prior ?? []));
+    return current !== null && prior !== null ? { current, prior } : null;
+  }, [projectionCtx, histories]);
+
+  // Two context flavours, stable across renders so PriorDetail's memo holds:
+  // one carrying the prior market path (for the β line), one without.
+  const ctxWithMarket = useMemo<ProjectionContext | null>(
+    () =>
+      startDays && projectionCtx
+        ? {
+            currentStartMs: startDays.current,
+            priorStartMs: startDays.prior,
+            priorMarketRet: projectionCtx.priorMarketRet,
+          }
+        : null,
+    [startDays, projectionCtx],
+  );
+  const ctxNoMarket = useMemo<ProjectionContext | null>(
+    () =>
+      startDays
+        ? {
+            currentStartMs: startDays.current,
+            priorStartMs: startDays.prior,
+            priorMarketRet: [],
+          }
+        : null,
+    [startDays],
+  );
+
+  function toggleExpanded(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function onSelect(item: PricedItem) {
     setSelected(item);
@@ -122,6 +226,24 @@ export default function Portfolio({
         </p>
       ) : (
         <>
+          {valueSeries.length >= 2 && (
+            <div className="portfolio-graph">
+              <div className="prior-chart-head">
+                <span className="prior-chart-title">
+                  Portfolio value · current league
+                </span>
+              </div>
+              <PortfolioChart
+                series={valueSeries}
+                costBasis={valuation.totalCost}
+              />
+            </div>
+          )}
+
+          {historyLoading && (
+            <p className="muted">Loading holding price history…</p>
+          )}
+
           <table className="holdings">
             <thead>
               <tr>
@@ -129,6 +251,7 @@ export default function Portfolio({
                 <th>Qty</th>
                 <th>Buy</th>
                 <th>Now</th>
+                <th>Trend</th>
                 <th>Value</th>
                 <th>P&amp;L</th>
                 <th aria-label="Remove" />
@@ -142,9 +265,33 @@ export default function Portfolio({
                   marketValue,
                   profit,
                   returnPct,
-                }) => (
-                  <tr key={position.key}>
+                }) => {
+                  const holding = histories.get(position.key);
+                  const priorHistory = holding?.prior ?? null;
+                  const currentHistory = holding?.current ?? [];
+                  const isOpen = expanded.has(position.key);
+                  const beta = betaByKey.get(position.key);
+                  // Use the analyzer's market path only when we have a real
+                  // beta for this item; otherwise project its own prior path.
+                  const ctx =
+                    beta !== undefined && ctxWithMarket
+                      ? ctxWithMarket
+                      : ctxNoMarket;
+                  return (
+                    <Fragment key={position.key}>
+                  <tr>
                     <td className="holding-name">
+                      {priorHistory && ctx && (
+                        <button
+                          type="button"
+                          className="opp-expander"
+                          aria-expanded={isOpen}
+                          title={`Show ${PRIOR_LEAGUE} chart and projection`}
+                          onClick={() => toggleExpanded(position.key)}
+                        >
+                          {isOpen ? "▾" : "▸"}
+                        </button>
+                      )}
                       {position.name}
                       <span className="muted"> · {position.category}</span>
                     </td>
@@ -180,6 +327,17 @@ export default function Portfolio({
                       {currentDivines === null
                         ? "—"
                         : `${formatNumber(currentDivines, 3)}`}
+                    </td>
+                    <td className="holding-trend">
+                      {currentHistory.length >= 2 ? (
+                        <Sparkline
+                          data={currentHistory.map((h) => h.rate)}
+                          width={84}
+                          height={26}
+                        />
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                     <td>
                       {marketValue === null
@@ -221,7 +379,22 @@ export default function Portfolio({
                       </button>
                     </td>
                   </tr>
-                ),
+                  {isOpen && priorHistory && ctx && (
+                    <tr className="holding-detail-row">
+                      <td colSpan={8} className="holding-detail">
+                        <PriorDetail
+                          currentHistory={currentHistory}
+                          priorHistory={priorHistory}
+                          beta={beta ?? 0}
+                          horizonDays={PROJECTION_HORIZON_DAYS}
+                          ctx={ctx}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                    </Fragment>
+                  );
+                },
               )}
             </tbody>
           </table>

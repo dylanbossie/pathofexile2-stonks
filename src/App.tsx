@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   fetchEconomy,
   fetchLeagues,
+  PRIOR_LEAGUE,
   type League,
   type MergedEconomy,
 } from "./api";
@@ -15,6 +16,7 @@ export default function App() {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [league, setLeague] = useState<string>("");
   const [economy, setEconomy] = useState<MergedEconomy | null>(null);
+  const [priorEconomy, setPriorEconomy] = useState<MergedEconomy | null>(null);
   const [tab, setTab] = useState<Tab>("calculator");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,6 +29,17 @@ export default function App() {
         if (def) setLeague(def.name);
       })
       .catch((e) => setError(String(e)));
+  }, []);
+
+  // Eagerly load the prior (ended) league's economy on mount — its name is a
+  // constant, independent of the selected league — so the prior-league chart,
+  // projections, and the portfolio's Fate of the Vaal panels have their data
+  // ready tab-wide without separate on-demand fetches. Best-effort: a failure
+  // here never blocks the current-league view.
+  useEffect(() => {
+    fetchEconomy(PRIOR_LEAGUE)
+      .then(setPriorEconomy)
+      .catch(() => setPriorEconomy(null));
   }, []);
 
   useEffect(() => {
@@ -96,7 +109,12 @@ export default function App() {
       {tab === "calculator" ? (
         <Calculator economy={economy} loading={loading} />
       ) : (
-        <Stonks economy={economy} league={league} loading={loading} />
+        <Stonks
+          economy={economy}
+          priorEconomy={priorEconomy}
+          league={league}
+          loading={loading}
+        />
       )}
     </main>
   );
